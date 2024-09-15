@@ -5,15 +5,32 @@ dotenv.config();
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
 import { UserModel as User } from "../models/UserModel.js";
-
+import axios from "axios";
+import { OAuth2Client } from "google-auth-library";
 const UserRouter = express.Router();
 
-UserRouter.post("/signup", async (req, res) => {
-  const { username, email, password } = req.body;
+// Google reCAPTCHA secret key
+const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
 
-  if (!username || !email || !password) {
+// Function to verify Google reCAPTCHA token
+const verifyRecaptcha = async (token) => {
+  const response = await axios.post(
+    `https://www.google.com/recaptcha/api/siteverify?secret=${RECAPTCHA_SECRET_KEY}&response=${token}`
+  );
+  return response.data.success;
+};
+
+UserRouter.post("/signup", async (req, res) => {
+  const { username, email, password, recaptchaToken } = req.body;
+
+  if (!username || !email || !password || !recaptchaToken) {
     return res.status(400).json({ message: "All fields must be provided" });
   }
+  const isRecaptchaValid = await verifyRecaptcha(recaptchaToken);
+  if (!isRecaptchaValid) {
+    return res.status(400).json({ message: "Invalid reCAPTCHA" });
+  }
+
   const passwordRegex =
     /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
   if (!passwordRegex.test(password)) {
@@ -39,9 +56,13 @@ UserRouter.post("/signup", async (req, res) => {
 
 // login
 UserRouter.post("/login", async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
+  const { email, password, recaptchaToken } = req.body;
+  if (!email || !password || !recaptchaToken) {
     return res.status(400).json({ message: "All fields are required" });
+  }
+  const isRecaptchaValid = await verifyRecaptcha(recaptchaToken);
+  if (!isRecaptchaValid) {
+    return res.status(400).json({ message: "Invalid reCAPTCHA" });
   }
   try {
     const user = await User.findOne({ email });
